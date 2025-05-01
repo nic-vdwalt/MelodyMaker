@@ -49,7 +49,7 @@ def midi_to_note_state_matrix(
                             state[idx] = [1, 1]
                         else:
                             state[idx] = [0, 0]
-                        logger.debug(f"Raw msg: {msg.type} pitch={pitch} -> idx={idx}")
+                        # logger.debug(f"Raw msg: {msg.type} pitch={pitch} -> idx={idx}")
                     else:
                         logger.debug(f"Ignored msg: {msg.type} pitch={pitch} out of bounds")
                 # advance to next message in this track
