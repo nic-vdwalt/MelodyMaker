@@ -3,9 +3,9 @@ import argparse
 import pickle
 import tensorflow as tf
 import numpy as np
-import midi_tools
-from data_utils import load_label_encoders
-from model_utils import generate_melody, generate_chords
+from utils.midi_utils import note_state_matrix_to_midi
+from utils.data_utils import load_label_encoders
+from utils.model_utils import generate_melody, generate_chords
 from config import SEED_PATH, MELODY_MODEL_PATH, CHORD_MODEL_PATH
 
 def main():
@@ -26,7 +26,7 @@ def main():
     melody = generate_melody(melody_model, seed, g_id, m_id, length=args.length)
     chords = generate_chords(chord_model, melody.reshape(-1,1), g_id, m_id)
 
-    midi_tools.note_state_matrix_to_midi(melody, chords, args.output)
+    note_state_matrix_to_midi(melody, chords, args.output)
     print(f"✔ Generation complete — MIDI saved as {args.output}")
 
 if __name__ == "__main__":

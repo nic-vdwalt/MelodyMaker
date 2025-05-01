@@ -2,7 +2,7 @@
 import os, glob
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
-import midi_tools
+import utils.midi_utils as midi_utils
 import filter as gm
 from config import MIDI_DIR, LOWER_BOUND, UPPER_BOUND, SEQ_LEN
 
@@ -41,7 +41,7 @@ def prepare_training_data(
     raw_X, raw_y, X_genre, X_mood = [], [], [], []
 
     for f in files:
-        mat = np.array(midi_tools.midi_to_note_state_matrix(f, lower_bound, upper_bound))
+        mat = np.array(midi_utils.midi_to_note_state_matrix(f, lower_bound, upper_bound))
         pitches = np.argmax(mat[..., 0], axis=1)
         if len(pitches) <= seq_len:
             continue

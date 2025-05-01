@@ -1,5 +1,4 @@
 import logging
-import mido
 import numpy as np
 from mido import MidiFile, MidiTrack, Message, MetaMessage, bpm2tempo
 from typing import List, Optional

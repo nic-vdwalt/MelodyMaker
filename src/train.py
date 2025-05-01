@@ -2,8 +2,8 @@
 import argparse
 import pickle
 import tensorflow as tf
-from data_utils import load_label_encoders, prepare_training_data
-from model_utils import build_melody_model, build_chord_model
+from utils.data_utils import load_label_encoders, prepare_training_data
+from utils.model_utils import build_melody_model, build_chord_model
 import report as r
 from config import MIDI_DIR, SEED_PATH, MELODY_MODEL_PATH, CHORD_MODEL_PATH, BATCH_SIZE, EPOCHS
 

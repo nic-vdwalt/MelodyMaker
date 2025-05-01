@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from midi_tools import midi_to_note_state_matrix, note_state_matrix_to_midi
+from utils.midi_utils import midi_to_note_state_matrix, note_state_matrix_to_midi
 
 # —————————————————————————————————————————————
 # CONFIGURATION
