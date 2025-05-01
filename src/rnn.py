@@ -27,10 +27,19 @@ MIDI_DIR    = 'Rock_Music_Midi'
 def load_label_encoders():
     raw_genres = gm.Genres()
     raw_moods  = gm.Moods()
+
+    # Ensure genres and moods are iterable lists
+    if isinstance(raw_genres, str) or not hasattr(raw_genres, '__iter__'):
+        raw_genres = [raw_genres]
+    if isinstance(raw_moods, str) or not hasattr(raw_moods, '__iter__'):
+        raw_moods = [raw_moods]
+
     if not raw_genres or not raw_moods:
         raise ValueError("gm.Genres() or gm.Moods() returned empty.")
+
     genre_enc = LabelEncoder().fit(raw_genres)
     mood_enc  = LabelEncoder().fit(raw_moods)
+
     return raw_genres, raw_moods, genre_enc, mood_enc
 
 # 3) PREPARE TRAINING DATA
