@@ -1,14 +1,26 @@
-.PHONY: clean train generate
+# Makefile
+
+PYTHON = python
+TRAIN_SCRIPT = src/train.py
+GENERATE_SCRIPT = src/generate.py
+
+MELODY_MODEL = melody_model.h5
+CHORD_MODEL = chord_model.h5
+SEED = seed.pkl
+
+.PHONY: clean train generate install
 
 clean:
-	# remove Python bytecode files
+	# remove Python bytecode files and build artifacts
 	find . -type f -name '*.py[co]' -delete
 	find . -type d -name '__pycache__' -exec rm -rf {} +
 	rm -rf build/ dist/ *.egg-info
-	rm -f melody_model.h5 chord_model.h5 scaler.pkl seed.pkl
 
 train:
-	python src/rnn.py --train
+	$(PYTHON) $(TRAIN_SCRIPT)
 
 generate:
-	python src/rnn.py
+	$(PYTHON) $(GENERATE_SCRIPT)
+
+install:
+	pip install -r requirements.txt
