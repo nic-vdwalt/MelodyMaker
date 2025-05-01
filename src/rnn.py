@@ -111,22 +111,27 @@ def prepare_training_data(
 def build_melody_model(num_genres, num_moods, lower_bound=24, upper_bound=102):
     span = upper_bound - lower_bound
 
-    note_input  = layers.Input(shape=(SEQ_LEN, FEATURE_DIM), name="note_seq")
+    note_input  = layers.Input(shape=(SEQ_LEN, FEATURE_DIM), name="note_seq", dtype='int32')
     genre_input = layers.Input(shape=(),         dtype='int32', name="genre_id")
     mood_input  = layers.Input(shape=(),         dtype='int32', name="mood_id")
 
-    note_emb = layers.Embedding(input_dim=span, output_dim=EMBED_DIM)(note_input)
-    g_emb    = layers.Embedding(input_dim=num_genres, output_dim=EMBED_DIM)(genre_input)
-    m_emb    = layers.Embedding(input_dim=num_moods,  output_dim=EMBED_DIM)(mood_input)
+    # Embed the note sequence and squeeze out the extra FEATURE_DIM axis
+    note_emb = layers.Embedding(input_dim=span, output_dim=EMBED_DIM)(note_input)            # -> (batch, SEQ_LEN, 1, EMBED_DIM)
+    note_emb = layers.Lambda(lambda x: tf.squeeze(x, axis=2), name="squeeze_note_emb")(note_emb)  # -> (batch, SEQ_LEN, EMBED_DIM)
 
-    g_seq = layers.RepeatVector(SEQ_LEN)(g_emb)
-    m_seq = layers.RepeatVector(SEQ_LEN)(m_emb)
+    # Embed genre and mood IDs and replicate over timesteps
+    g_emb = layers.Embedding(input_dim=num_genres, output_dim=EMBED_DIM)(genre_input)  # -> (batch, EMBED_DIM)
+    m_emb = layers.Embedding(input_dim=num_moods,  output_dim=EMBED_DIM)(mood_input)   # -> (batch, EMBED_DIM)
+    g_seq = layers.RepeatVector(SEQ_LEN)(g_emb)                                      # -> (batch, SEQ_LEN, EMBED_DIM)
+    m_seq = layers.RepeatVector(SEQ_LEN)(m_emb)                                      # -> (batch, SEQ_LEN, EMBED_DIM)
 
-    x = layers.Concatenate(axis=-1)([note_emb, g_seq, m_seq])
+    # Concatenate along the feature axis
+    x = layers.Concatenate(axis=-1)([note_emb, g_seq, m_seq])  # -> (batch, SEQ_LEN, EMBED_DIM*3)
     x = layers.LSTM(LSTM_UNITS, return_sequences=True)(x)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.LSTM(LSTM_UNITS)(x)
     x = layers.Dropout(DROPOUT)(x)
+
     melody_out = layers.Dense(FEATURE_DIM, activation='linear')(x)
 
     model = Model([note_input, genre_input, mood_input], melody_out, name="melody_model")
