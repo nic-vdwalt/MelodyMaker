@@ -28,7 +28,7 @@ np.random.seed(42)
 # —————————————————————————————————————————————
 # GENRE & MOOD SETUP (for reporting)
 # —————————————————————————————————————————————
-import GetGM as gm
+import filter as gm
 import Report as r
 
 genres = gm.Genres()

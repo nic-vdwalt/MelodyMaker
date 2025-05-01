@@ -3,94 +3,83 @@ import pickle
 import os
 import pandas as pd
 
-##class for data
-class ReportData():
-    genre = ""
-    mood = ""
-    date = datetime
-    
+class ReportData:
+    """
+    Simple data class for report entries.
+    """
+    def __init__(self, genre: str, mood: str, date: datetime.datetime = None):
+        self.genre = genre
+        self.mood = mood
+        self.date = date or datetime.datetime.now()
+
+    def to_dict(self):
+        return {
+            'Genre': self.genre,
+            'Mood': self.mood,
+            'Date': self.date
+        }
 
 
-def updateData(genre, mood):
-   ##populate rd
-    rd = ReportData()
-    rd.genre = genre
-    rd.mood = mood
-    rd.date = datetime.datetime.now()
+def updateData(genre: str, mood: str):
+    """
+    Append a new ReportData entry to data.pkl.
+    """
+    file_path = "data.pkl"
+    rd = ReportData(genre, mood)
 
-    
-    ##
-    exists = os.path.isfile("data.pkl")
-    lst = []
-    if exists:
-        with open("data.pkl", "rb") as pfile:
-
-            
-            while 1:
-                try:        
-                    lst.append(pickle.load(pfile))
-                except EOFError:
-                    break
-            lst.append(rd)
-        with open("data.pkl", "wb") as pfile:
-            for obj in lst:
-                pickle.dump(obj, pfile)
+    # Load existing list or start fresh
+    if os.path.isfile(file_path):
+        try:
+            with open(file_path, 'rb') as pfile:
+                data_list = pickle.load(pfile)
+                if not isinstance(data_list, list):
+                    data_list = [data_list]
+        except Exception:
+            data_list = []
     else:
-        lst.append(rd)
-        with open("data.pkl", "wb") as pfile:
-            for obj in lst:
-                pickle.dump(obj, pfile)
+        data_list = []
+
+    # Append and save back
+    data_list.append(rd)
+    with open(file_path, 'wb') as pfile:
+        pickle.dump(data_list, pfile)
+
 
 def getData():
-    ##GET INFORMATION FROM FILE
-    exists = os.path.isfile("data.pkl")
-    lst = []
-    ##populate list with data information
-    if exists:
-        with open("data.pkl", "rb") as pfile:
-            while 1:
-                try:
-                    
-                    lst.append(pickle.load(pfile))
-                except EOFError:
-                    break
-       
-        ##add data to data frame
-        gs =[]
-        ms=[]
-        ds=[]
-        i = 0
-        for l in lst:
-            ++i
-            gs.append(l.genre)
-            ms.append(l.mood)
-            ds.append(l.date)
-            
-            
-        
-        lst2 = {'Genre': gs,
-                'Mood': ms,
-                'Date':ds }
-        ##print data
-        print("Total:"+ str(i))
-        print("===================")
-        print("Genres")
-        print("===================")
-        df = pd.DataFrame.from_dict(lst2) 
-        print(df.groupby('Genre')['Genre'].count().reset_index(name='Amount'))
-        
-        print("===================")  
-        print("Moods")
-        print("===================")   
-        print(df.groupby('Mood')['Genre'].count().reset_index(name='Amount'))
-        
-        print("===================")  
-        print("All")
-        print("===================")   
-        print(df.sort_values(by='Date', ascending = False))
-    else:
+    """
+    Read data.pkl and display summary counts and table.
+    """
+    file_path = "data.pkl"
+    if not os.path.isfile(file_path):
         print("No data")
-    
-    
+        return
 
+    try:
+        with open(file_path, 'rb') as pfile:
+            data_list = pickle.load(pfile)
+            if not isinstance(data_list, list):
+                data_list = [data_list]
+    except Exception as e:
+        print(f"Failed to load data: {e}")
+        return
 
+    # Convert to DataFrame
+    df = pd.DataFrame([entry.to_dict() for entry in data_list])
+
+    # Summary
+    total = len(df)
+    print(f"Total: {total}")
+    print("===================")
+    print("Genres")
+    print("===================")
+    print(df.groupby('Genre').size().reset_index(name='Amount'))
+
+    print("===================")
+    print("Moods")
+    print("===================")
+    print(df.groupby('Mood').size().reset_index(name='Amount'))
+
+    print("===================")
+    print("All Entries (most recent first)")
+    print("===================")
+    print(df.sort_values(by='Date', ascending=False))

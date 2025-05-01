@@ -1,4 +1,4 @@
-import Report as r
+import report as r
 
 ##Class to get menu input
 
@@ -11,9 +11,9 @@ def menu():
     
     menuIn = int(input(""))
     if menuIn == 1:
-        import MidiPrint
+        import rbm_midi_generator
     elif menuIn == 2:
-        import helpPage
+        import help_page
         
     elif menuIn == 3:
         ##add report stuff

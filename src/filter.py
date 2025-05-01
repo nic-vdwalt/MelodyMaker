@@ -1,4 +1,4 @@
-import Report as r
+import report as r
 
 
 ##genre array with temp values 
