@@ -1,6 +1,6 @@
-# File: src/midi_tools.py
 import mido
 import numpy as np
+from mido import MidiFile, MidiTrack, Message, MetaMessage, bpm2tempo
 from typing import List, Optional
 
 
@@ -11,165 +11,188 @@ def midi_to_note_state_matrix(
     squash: bool = True
 ) -> List[List[List[int]]]:
     """
-    Convert a MIDI file into a note-state matrix using mido.
+    Convert a MIDI file into a note-state matrix.
     Each timestep is a list of [note_on, note_playing] for pitches in [lower_bound, upper_bound).
     If squash=True, consecutive identical frames are collapsed.
+
+    Returns:
+        statematrix: List of frames; each frame is a list of [on, playing] per pitch.
     """
-    mid = mido.MidiFile(midifile)
+    mid = MidiFile(midifile)
     resolution = mid.ticks_per_beat
     ticks_per_sample = max(1, resolution // 8)
 
-    tracks = mid.tracks
-    timeleft = [trk[0].time if trk else None for trk in tracks]
-    positions = [0] * len(tracks)
-
     span = upper_bound - lower_bound
     state = [[0, 0] for _ in range(span)]
-    statematrix: List[List[List[int]]] = [[row.copy() for row in state]]
+    statematrix: List[List[List[int]]] = []
 
-    time = 0
+    # Track positions and time left
+    tracks = mid.tracks
+    time_left = [trk[0].time if trk else None for trk in tracks]
+    positions = [0] * len(tracks)
+    current_time = 0
+
     while True:
-        # process all tracks at this tick
-        for i, trk in enumerate(tracks):
-            if timeleft[i] is None:
-                continue
-            # consume all zero-delay messages
-            while timeleft[i] == 0:
-                msg = trk[positions[i]]
-                if msg.type in ('note_on', 'note_off'):
-                    p = msg.note
-                    if lower_bound <= p < upper_bound:
-                        idx = p - lower_bound
-                        # note_off or note_on with velocity=0
-                        if msg.type == 'note_off' or getattr(msg, 'velocity', 0) == 0:
-                            state[idx] = [0, 0]
-                        else:
-                            state[idx] = [1, 1]
-                elif msg.type == 'time_signature':
-                    if msg.numerator not in (2, 4):
-                        return statematrix  # unsupported time signature
-                # advance in this track
-                positions[i] += 1
-                if positions[i] < len(trk):
-                    timeleft[i] = trk[positions[i]].time
-                else:
-                    timeleft[i] = None
-                    break
-            # decrement time until next event
-            if timeleft[i] is not None:
-                timeleft[i] -= 1
-
-        # stop when all tracks are done
-        if all(t is None for t in timeleft):
+        # find next event
+        valid = [t for t in time_left if t is not None]
+        if not valid:
             break
+        min_time = min(valid)
+        current_time += min_time
 
-        time += 1
-        if time % ticks_per_sample == 0:
-            # prepare next frame: hold existing notes, reset 'new' flag
-            new_state = [[on, 0] for on, _ in state]
-            if not (squash and new_state == statematrix[-1]):
-                statematrix.append([row.copy() for row in new_state])
-            state = new_state
+        # advance all tracks
+        for i, t in enumerate(time_left):
+            if t is None:
+                continue
+            if t == min_time:
+                msg = tracks[i][positions[i]]
+                # handle note events
+                if not msg.is_meta and msg.type in ('note_on', 'note_off'):
+                    pitch = msg.note
+                    if lower_bound <= pitch < upper_bound:
+                        idx = pitch - lower_bound
+                        if msg.type == 'note_on' and getattr(msg, 'velocity', 0) > 0:
+                            state[idx] = [1, 1]
+                        else:
+                            state[idx] = [0, 0]
+                positions[i] += 1
+                # update next time
+                if positions[i] < len(tracks[i]):
+                    time_left[i] = tracks[i][positions[i]].time
+                else:
+                    time_left[i] = None
+            else:
+                time_left[i] -= min_time
 
+        # record a frame when enough ticks have passed
+        if current_time >= ticks_per_sample:
+            statematrix.append([row.copy() for row in state])
+            current_time %= ticks_per_sample
+
+    # optionally squash consecutive duplicates
+    if squash:
+        squashed = []
+        prev = None
+        for frame in statematrix:
+            if frame != prev:
+                squashed.append(frame)
+            prev = frame
+        return squashed
     return statematrix
+
 
 def note_state_matrix_to_midi(
     statematrix: List[List[List[int]]],
-    chord_seq: List[int],
+    chord_seq: Optional[List[int]],
     file_path: str,
     lower_bound: int = 24,
     upper_bound: int = 102,
     tick_scale: int = 55
 ) -> None:
     """
-    Convert a note-state matrix or a monophonic pitch sequence, along with an underlying chord sequence, into a MIDI file.
-    If `statematrix` is a list of pitch values (1D or shape (t,1)), it will be converted to a note-state matrix.
-    Chord sequence entries are interpreted as MIDI root pitches, with major triads constructed for each timestep.
+    Convert a note-state matrix (or monophonic pitch sequence) and optional chord roots
+    into a MIDI file saved at `file_path`.
 
-    Parameters:
-    - statematrix: Either:
-        • List of [ [on, new], … ] frames of length span = upper_bound−lower_bound, shape (t, span, 2)
-        • List of pitch values per timestep, shape (t,) or (t,1)
-    - chord_seq:   List of MIDI pitch numbers for chord roots per timestep
-    - file_path:   Path where the .mid file will be saved
-    - lower_bound: Lowest MIDI pitch (inclusive) used for melody
-    - upper_bound: Highest MIDI pitch (exclusive) used for melody
-    - tick_scale:  Multiplier for timing resolution (ticks per sample divided by 8)
+    - statematrix: either:
+        • list of [on, playing] frames, shape (t, span, 2)
+        • list/array of pitch values, shape (t,) or (t, 1)
+    - chord_seq:  list of MIDI pitch roots per timestep (or None)
     """
-    lower_bound = int(lower_bound)
-    upper_bound = int(upper_bound)
+    # ensure numpy array
+    mat = np.array(statematrix)
     span = upper_bound - lower_bound
 
-    # Convert input to numpy array
-    mat = np.array(statematrix)
-    # Detect monophonic pitch sequence
+    # detect monophonic sequence
     if mat.ndim == 1 or (mat.ndim == 2 and mat.shape[1] == 1):
         pitches = mat.flatten().astype(int)
-        # build full note-state matrix of zeros
-        full = np.zeros((len(pitches), span, 2), dtype=int)
+        mat_state = np.zeros((len(pitches), span, 2), dtype=int)
         for t, p in enumerate(pitches):
-            if lower_bound <= p < upper_bound:
-                idx = p - lower_bound
-                full[t, idx] = [1, 1]
-        mat = full
-    # Ensure shape (t, span, 2)
-    elif mat.ndim == 2 and mat.shape[1] == span * 2:
-        mat = mat.reshape(-1, span, 2)
-    elif mat.ndim == 3 and mat.shape[1:] == (span, 2):
-        pass
+            idx = p - lower_bound
+            if 0 <= idx < span:
+                mat_state[t, idx] = [1, 1]
+    elif mat.ndim == 3 and mat.shape[1] == span and mat.shape[2] == 2:
+        mat_state = mat.astype(int)
     else:
-        raise ValueError(f"Unsupported statematrix shape {mat.shape}; expected pitch list or (t,{span},2)")
+        raise ValueError(f"Expected statematrix shape (t,{span},2) or (t,) or (t,1); got {mat.shape}")
 
-    # Create MIDI with melody and chord tracks
-    mid = mido.MidiFile()
-    mid.ticks_per_beat = tick_scale * 8
-    melody_track = mido.MidiTrack()
-    chord_track = mido.MidiTrack()
-    mid.tracks.extend([melody_track, chord_track])
+    # prepare chord sequence
+    if chord_seq is None:
+        chord_seq = [None] * mat_state.shape[0]
+    if len(chord_seq) < mat_state.shape[0]:
+        chord_seq = list(chord_seq) + [None] * (mat_state.shape[0] - len(chord_seq))
 
-    last_m_time = 0
-    last_c_time = 0
-    prev_m = [[0, 0] for _ in range(span)]
+    # create MIDI
+    midi = MidiFile()
+    # tempo track
+    meta = MidiTrack()
+    meta.append(MetaMessage('set_tempo', tempo=bpm2tempo(120), time=0))
+    midi.tracks.append(meta)
+
+    # melody track (channel 0)
+    mel_track = MidiTrack()
+    midi.tracks.append(mel_track)
+    # chord track (channel 1)
+    ch_track = MidiTrack()
+    midi.tracks.append(ch_track)
+
+    prev_state = np.zeros(span, dtype=int)
     prev_chord = None
-    active_chords: List[int] = []
+    time_acc = 0
 
-    for t, frame in enumerate(mat):
-        # Chord handling
-        cur_ch = chord_seq[t] if t < len(chord_seq) else None
-        if cur_ch != prev_chord:
-            # Turn off old chord notes
-            for note in active_chords:
-                delta = (t - last_c_time) * tick_scale
-                chord_track.append(mido.Message('note_off', note=note, velocity=0, time=delta))
-                last_c_time = t
-            active_chords = []
-            # Turn on new chord triad
-            if cur_ch is not None:
-                triad = [cur_ch, cur_ch + 4, cur_ch + 7]
-                for note in triad:
-                    delta = (t - last_c_time) * tick_scale
-                    chord_track.append(mido.Message('note_on', note=note, velocity=40, time=delta))
-                    last_c_time = t
-                active_chords = triad
-            prev_chord = cur_ch
+    for t, frame in enumerate(mat_state):
+        # melody on/off
+        for i in range(span):
+            on, playing = frame[i]
+            if playing and not prev_state[i]:
+                mel_track.append(Message('note_on', note=i+lower_bound, velocity=64,
+                                         time=time_acc, channel=0))
+                time_acc = 0
+            if not playing and prev_state[i]:
+                mel_track.append(Message('note_off', note=i+lower_bound, velocity=64,
+                                         time=time_acc, channel=0))
+                time_acc = 0
+        prev_state = frame[:, 1].copy()
 
-        # Melody handling
-        offs = [i for i, (c, p) in enumerate(zip(frame, prev_m)) if p[0] and not c[0]]
-        ons  = [i for i, (c, p) in enumerate(zip(frame, prev_m)) if c[0] and not p[0]]
-        for idx in offs:
-            delta = (t - last_m_time) * tick_scale
-            melody_track.append(mido.Message('note_off', note=idx + lower_bound, velocity=0, time=delta))
-            last_m_time = t
-        for idx in ons:
-            delta = (t - last_m_time) * tick_scale
-            melody_track.append(mido.Message('note_on', note=idx + lower_bound, velocity=40, time=delta))
-            last_m_time = t
-        prev_m = [row.copy() for row in frame]
+        # chord on/off
+        chord = chord_seq[t]
+        if chord is not None:
+            if prev_chord is None:
+                # first chord
+                notes = [chord, chord+4, chord+7]
+                for p in notes:
+                    ch_track.append(Message('note_on', note=p, velocity=64,
+                                             time=time_acc, channel=1))
+                    time_acc = 0
+                prev_chord = chord
+            elif chord != prev_chord:
+                # chord change: turn off old
+                old_notes = [prev_chord, prev_chord+4, prev_chord+7]
+                for p in old_notes:
+                    ch_track.append(Message('note_off', note=p, velocity=64,
+                                             time=time_acc, channel=1))
+                    time_acc = 0
+                # new chord on
+                new_notes = [chord, chord+4, chord+7]
+                for p in new_notes:
+                    ch_track.append(Message('note_on', note=p, velocity=64,
+                                             time=time_acc, channel=1))
+                    time_acc = 0
+                prev_chord = chord
 
-    # End remaining notes
-    for note in active_chords:
-        chord_track.append(mido.Message('note_off', note=note, velocity=0, time=tick_scale))
-    melody_track.append(mido.MetaMessage('end_of_track', time=tick_scale))
-    chord_track.append(mido.MetaMessage('end_of_track', time=0))
+        # advance time
+        time_acc += tick_scale
 
-    mid.save(file_path)
+    # finalize: turn off sustained notes
+    for i in range(span):
+        if prev_state[i]:
+            mel_track.append(Message('note_off', note=i+lower_bound, velocity=64,
+                                     time=time_acc, channel=0))
+            time_acc = 0
+    if prev_chord is not None:
+        final_notes = [prev_chord, prev_chord+4, prev_chord+7]
+        for p in final_notes:
+            ch_track.append(Message('note_off', note=p, velocity=64,
+                                     time=time_acc, channel=1))
+            time_acc = 0
+
+    midi.save(file_path)

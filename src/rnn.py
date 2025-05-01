@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import glob
 import argparse
@@ -8,10 +6,12 @@ import pickle
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
+from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 from tqdm import tqdm
+from numpy.random import choice
 
-import midi_tools       # your existing helper module
+import midi_tools       # your helper module
 import filter as gm     # provides Genres() and Moods()
 import report as r      # for reporting
 
@@ -34,7 +34,6 @@ def load_label_encoders():
     raw_genres = gm.Genres()
     raw_moods  = gm.Moods()
 
-    # Ensure iterable
     if isinstance(raw_genres, str) or not hasattr(raw_genres, '__iter__'):
         raw_genres = [raw_genres]
     if isinstance(raw_moods, str) or not hasattr(raw_moods, '__iter__'):
@@ -55,58 +54,75 @@ def prepare_training_data(
     genre_enc: LabelEncoder,
     mood_enc: LabelEncoder,
     seq_len: int = SEQ_LEN,
-    feature_dim: int = FEATURE_DIM
+    lower_bound: int = 24,
+    upper_bound: int = 102
 ):
+    """
+    Load MIDI files from `midi_dir`, extract monophonic pitch sequences,
+    and build training data for regression (scaled continuous values).
+
+    Returns:
+    - X_notes: np.ndarray of shape (n_samples, seq_len, FEATURE_DIM)
+    - y_notes: np.ndarray of shape (n_samples, FEATURE_DIM)
+    - X_genre: np.ndarray of shape (n_samples,)
+    - X_mood: np.ndarray of shape (n_samples,)
+    - scaler : fitted MinMaxScaler for inverse transformation
+    """
     files = glob.glob(os.path.join(midi_dir, '*.mid*'))
     if not files:
         raise FileNotFoundError(f"No MIDI files found in {midi_dir}")
 
-    seqs = []
+    span = upper_bound - lower_bound
+    raw_X, raw_y, X_genre, X_mood = [], [], [], []
+
     for f in files:
         mat = np.array(midi_tools.midi_to_note_state_matrix(f))
-        if mat.ndim == 3:
-            mat = mat[..., 0]
-        if mat.shape[0] > seq_len:
-            seqs.append(mat[:, :feature_dim])
+        # collapse to monophonic pitch index per timestep
+        pitches = np.argmax(mat[..., 0], axis=1)
+        if len(pitches) <= seq_len:
+            continue
 
-    if not seqs:
-        raise ValueError(f"No MIDI sequences longer than SEQ_LEN={seq_len} in {midi_dir}")
+        for i in range(len(pitches) - seq_len):
+            window = pitches[i : i + seq_len]
+            target = pitches[i + seq_len]
 
-    X_notes, y_notes, X_genre, X_mood = [], [], [], []
-    for seq in seqs:
-        for i in range(len(seq) - seq_len):
-            window = seq[i : i + seq_len]
-            target = seq[i + seq_len, 0].item()
-
-            X_notes.append(window)
-            y_notes.append(target)
+            raw_X.append(window)
+            raw_y.append(target)
             X_genre.append(genre_enc.transform([genres[0]])[0])
             X_mood.append(mood_enc.transform([moods[0]])[0])
 
-    X_notes = np.array(X_notes, dtype='float32')
-    y_notes = np.array(y_notes, dtype='float32').reshape(-1, 1)
+    # Convert to arrays and reshape for regression model
+    X_notes = np.array(raw_X, dtype='float32').reshape(-1, seq_len, FEATURE_DIM)
+    y_notes = np.array(raw_y, dtype='float32').reshape(-1, FEATURE_DIM)
     X_genre = np.array(X_genre, dtype='int32')
     X_mood  = np.array(X_mood, dtype='int32')
 
-    flat_X = X_notes.reshape(-1, 1)
-    scaler = MinMaxScaler(feature_range=(0, 1)).fit(flat_X)
-    X_notes = scaler.transform(flat_X).reshape(X_notes.shape)
-    y_notes = scaler.transform(y_notes)
+    # Scale note values to [0, 1]
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    flat_inputs = X_notes.flatten().reshape(-1, 1)
+    flat_targets = y_notes.flatten().reshape(-1, 1)
+    scaler.fit(np.vstack([flat_inputs, flat_targets]))
+
+    X_notes = scaler.transform(flat_inputs).reshape(-1, seq_len, FEATURE_DIM)
+    y_notes = scaler.transform(flat_targets).reshape(-1, FEATURE_DIM)
 
     return X_notes, y_notes, X_genre, X_mood, scaler
 
+def build_melody_model(num_genres, num_moods, lower_bound=24, upper_bound=102):
+    span = upper_bound - lower_bound
 
-def build_melody_model(num_genres, num_moods):
     note_input  = layers.Input(shape=(SEQ_LEN, FEATURE_DIM), name="note_seq")
-    genre_input = layers.Input(shape=(), dtype='int32', name="genre_id")
-    mood_input  = layers.Input(shape=(), dtype='int32', name="mood_id")
+    genre_input = layers.Input(shape=(),         dtype='int32', name="genre_id")
+    mood_input  = layers.Input(shape=(),         dtype='int32', name="mood_id")
 
-    g = layers.Embedding(input_dim=num_genres, output_dim=EMBED_DIM)(genre_input)
-    m = layers.Embedding(input_dim=num_moods,  output_dim=EMBED_DIM)(mood_input)
-    g_seq = layers.RepeatVector(SEQ_LEN)(g)
-    m_seq = layers.RepeatVector(SEQ_LEN)(m)
+    note_emb = layers.Embedding(input_dim=span, output_dim=EMBED_DIM)(note_input)
+    g_emb    = layers.Embedding(input_dim=num_genres, output_dim=EMBED_DIM)(genre_input)
+    m_emb    = layers.Embedding(input_dim=num_moods,  output_dim=EMBED_DIM)(mood_input)
 
-    x = layers.Concatenate(axis=-1)([note_input, g_seq, m_seq])
+    g_seq = layers.RepeatVector(SEQ_LEN)(g_emb)
+    m_seq = layers.RepeatVector(SEQ_LEN)(m_emb)
+
+    x = layers.Concatenate(axis=-1)([note_emb, g_seq, m_seq])
     x = layers.LSTM(LSTM_UNITS, return_sequences=True)(x)
     x = layers.Dropout(DROPOUT)(x)
     x = layers.LSTM(LSTM_UNITS)(x)
@@ -117,6 +133,49 @@ def build_melody_model(num_genres, num_moods):
     model.compile(optimizer='adam', loss='mse')
     return model
 
+def generate_melody(model, seed_seq, genre_id, mood_id, length=1500, temperature=1.0):
+    """
+    Generate a new melody sequence using the trained model.
+
+    Args:
+        model: Trained Keras melody prediction model.
+        seed_seq: Initial sequence of pitches, shape (SEQ_LEN, 1) or (SEQ_LEN,).
+        genre_id: Integer genre identifier.
+        mood_id: Integer mood identifier.
+        length: Number of timesteps to generate.
+        temperature: Sampling temperature for diversity.
+
+    Returns:
+        numpy.ndarray of generated pitch indices, shape (length,).
+    """
+    # Flatten seed and convert to int list
+    arr = np.array(seed_seq).flatten()
+    seq = [int(x) for x in arr]
+    result = []
+
+    for _ in tqdm(range(length), desc="Generating melody"):
+        # Prepare inputs
+        note_input = np.array(seq[-SEQ_LEN:], dtype='int32').reshape(1, SEQ_LEN)
+        g_input = np.array([genre_id], dtype='int32')
+        m_input = np.array([mood_id], dtype='int32')
+        preds = model.predict([note_input, g_input, m_input], verbose=0)[0]
+
+        # Temperature sampling
+        eps = 1e-8
+        preds = np.clip(preds, eps, 1.0)
+        log_preds = np.log(preds) / max(temperature, eps)
+        log_preds -= np.max(log_preds)
+        exp_preds = np.exp(log_preds)
+        probs = exp_preds / np.sum(exp_preds)
+
+        if not np.isfinite(probs).all() or np.sum(probs) == 0:
+            probs = np.ones_like(probs) / len(probs)
+
+        next_idx = choice(len(probs), p=probs)
+        result.append(int(next_idx))
+        seq.append(int(next_idx))
+
+    return np.array(result, dtype='int32')
 
 def build_chord_model(num_genres, num_moods):
     chord_input = layers.Input(shape=(None, FEATURE_DIM), name="melody_seq")
@@ -124,7 +183,7 @@ def build_chord_model(num_genres, num_moods):
     cm          = layers.Input(shape=(), dtype='int32', name="ch_mood_id")
 
     cg_emb = layers.Embedding(input_dim=num_genres, output_dim=EMBED_DIM)(cg)
-    cm_emb = layers.Embedding(input_dim=num_moods, output_dim=EMBED_DIM)(cm)
+    cm_emb = layers.Embedding(input_dim=num_moods,  output_dim=EMBED_DIM)(cm)
 
     cg_seq = layers.Lambda(
         lambda inputs: tf.tile(tf.expand_dims(inputs[0], 1), [1, tf.shape(inputs[1])[1], 1])
@@ -146,21 +205,6 @@ def build_chord_model(num_genres, num_moods):
     model.compile(optimizer='adam', loss='categorical_crossentropy')
     return model
 
-
-def generate_melody(model, seed_seq, genre_id, mood_id, length=100):
-    seq = seed_seq.copy()
-    out = []
-    for _ in range(length):
-        p = model.predict([
-            seq[np.newaxis, ...],
-            np.array([genre_id]),
-            np.array([mood_id])
-        ], verbose=0)[0]
-        out.append(p)
-        seq = np.vstack([seq[1:], p[np.newaxis, ...]])
-    return np.array(out)
-
-
 def generate_chords(model, melody_seq, genre_id, mood_id):
     preds = model.predict([
         melody_seq[np.newaxis, ...],
@@ -169,100 +213,73 @@ def generate_chords(model, melody_seq, genre_id, mood_id):
     ], verbose=0)[0]
     return np.argmax(preds, axis=-1)
 
-
 def main():
-    import os
-    import sys
-    import pickle
-    import argparse
-    import tensorflow as tf
-
-    parser = argparse.ArgumentParser(
-        description="Train or generate melodies and chords"
+    parser = argparse.ArgumentParser(description="Train or generate melodies and chords")
+    parser.add_argument(
+        '--train', action='store_true', help="Run training"
     )
     parser.add_argument(
-        '--train',
-        action='store_true',
-        help="Run training"
-    )
-    parser.add_argument(
-        '--length',
-        type=int,
-        default=200,
-        help="Length of melody to generate"
+        '--length', type=int, default=1500,
+        help="Length of melody to generate (timesteps)"
     )
     args = parser.parse_args()
 
-    # Load genre/mood encoders and update reporting
     genres, moods, genre_enc, mood_enc = load_label_encoders()
     r.updateData(genres, moods)
 
     if args.train:
-        # PREPARE DATA
         X_notes, y_notes, X_genre, X_mood, scaler = prepare_training_data(
             MIDI_DIR, genres, moods, genre_enc, mood_enc
         )
-
-        # BUILD & TRAIN MODELS
         melody_model = build_melody_model(len(genres), len(moods))
-        chord_model = build_chord_model(len(genres), len(moods))
-
+        chord_model  = build_chord_model(len(genres), len(moods))
         melody_model.fit(
-            [X_notes, X_genre, X_mood],
-            y_notes,
-            batch_size=BATCH_SIZE,
-            epochs=EPOCHS,
-            validation_split=0.1,
-            shuffle=True
+            [X_notes, X_genre, X_mood], y_notes,
+            batch_size=BATCH_SIZE, epochs=EPOCHS,
+            validation_split=0.1, shuffle=True
         )
-
-        # SAVE ARTIFACTS
         melody_model.save(MELODY_MODEL_PATH)
         chord_model.save(CHORD_MODEL_PATH)
         with open(SCALER_PATH, 'wb') as f:
             pickle.dump(scaler, f)
-        seed = X_notes[0]
         with open(SEED_PATH, 'wb') as f:
-            pickle.dump(seed, f)
+            pickle.dump(X_notes[0], f)
+        print("✔ Training complete — artifacts saved.")
 
-        print("✔ Training complete — models, scaler, and seed saved.")
     else:
-        # PRE-FLIGHT: ensure models exist
-        if not os.path.exists(MELODY_MODEL_PATH) or not os.path.exists(CHORD_MODEL_PATH):
+        if (
+            not os.path.exists(MELODY_MODEL_PATH)
+            or not os.path.exists(CHORD_MODEL_PATH)
+        ):
             print(
-                "❌ Models not found. Run with --train first:",
-                "\n    python src/rnn.py --train"
+                "❌ Models not found. Run with --train first:\n"
+                "    python src/rnn.py --train"
             )
-            sys.exit(1)
+            return
 
-        # LOAD ARTIFACTS
         melody_model = tf.keras.models.load_model(MELODY_MODEL_PATH)
-        chord_model = tf.keras.models.load_model(CHORD_MODEL_PATH)
+        chord_model  = tf.keras.models.load_model(CHORD_MODEL_PATH)
         with open(SCALER_PATH, 'rb') as f:
             scaler = pickle.load(f)
         with open(SEED_PATH, 'rb') as f:
             seed = pickle.load(f)
 
-        # GENERATE & SAVE MIDI
         g_id = genre_enc.transform([genres[0]])[0]
         m_id = mood_enc.transform([moods[0]])[0]
-
         melody = generate_melody(
-            melody_model,
-            seed,
-            g_id,
-            m_id,
-            length=args.length
+            melody_model, seed, g_id, m_id, length=args.length
         )
         chords = generate_chords(chord_model, melody, g_id, m_id)
-        melody = scaler.inverse_transform(melody)
+
+        # Reshape for inverse_transform, then flatten back
+        melody = scaler.inverse_transform(melody.reshape(-1, 1)).reshape(-1)
 
         midi_tools.note_state_matrix_to_midi(
-            melody,
-            chords,
-            "output_generated.mid"
+            melody, chords, "output_generated.mid"
         )
         print("✔ Generation complete — MIDI saved as output_generated.mid")
 
+
 if __name__ == "__main__":
     main()
+
