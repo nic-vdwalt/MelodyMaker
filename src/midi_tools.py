@@ -82,106 +82,94 @@ def note_state_matrix_to_midi(
     tick_scale: int = 55
 ) -> None:
     """
-    Convert a note-state matrix and an underlying chord sequence into a MIDI file.
-    Chord sequence entries are interpreted as MIDI root pitches, with major triads constructed.
+    Convert a note-state matrix or a monophonic pitch sequence, along with an underlying chord sequence, into a MIDI file.
+    If `statematrix` is a list of pitch values (1D or shape (t,1)), it will be converted to a note-state matrix.
+    Chord sequence entries are interpreted as MIDI root pitches, with major triads constructed for each timestep.
 
     Parameters:
-    - statematrix: List of [ [on, new], … ] frames of length span = upper_bound−lower_bound
-    - chord_seq:   List of MIDI pitch numbers for chord roots
+    - statematrix: Either:
+        • List of [ [on, new], … ] frames of length span = upper_bound−lower_bound, shape (t, span, 2)
+        • List of pitch values per timestep, shape (t,) or (t,1)
+    - chord_seq:   List of MIDI pitch numbers for chord roots per timestep
     - file_path:   Path where the .mid file will be saved
-    - lower_bound: Lowest MIDI pitch (inclusive) for melody
-    - upper_bound: Highest MIDI pitch (exclusive) for melody
-    - tick_scale:  Multiplier for timing resolution
+    - lower_bound: Lowest MIDI pitch (inclusive) used for melody
+    - upper_bound: Highest MIDI pitch (exclusive) used for melody
+    - tick_scale:  Multiplier for timing resolution (ticks per sample divided by 8)
     """
-    # normalize bounds
     lower_bound = int(lower_bound)
     upper_bound = int(upper_bound)
     span = upper_bound - lower_bound
 
-    # convert to numpy array and ensure shape [timesteps, span, 2]
+    # Convert input to numpy array
     mat = np.array(statematrix)
-    if mat.ndim == 2:
-        # might be flattened frames of length span*2
-        if mat.shape[1] == span * 2:
-            mat = mat.reshape(-1, span, 2)
-        else:
-            raise ValueError(f"Expected statematrix shape (t, {span}, 2) or (t, {span*2}), got {mat.shape}")
-    elif mat.ndim == 3:
-        if mat.shape[1:] != (span, 2):
-            try:
-                mat = mat.reshape(-1, span, 2)
-            except Exception:
-                raise ValueError(f"Cannot reshape statematrix of shape {mat.shape} to (t, {span}, 2)")
+    # Detect monophonic pitch sequence
+    if mat.ndim == 1 or (mat.ndim == 2 and mat.shape[1] == 1):
+        pitches = mat.flatten().astype(int)
+        # build full note-state matrix of zeros
+        full = np.zeros((len(pitches), span, 2), dtype=int)
+        for t, p in enumerate(pitches):
+            if lower_bound <= p < upper_bound:
+                idx = p - lower_bound
+                full[t, idx] = [1, 1]
+        mat = full
+    # Ensure shape (t, span, 2)
+    elif mat.ndim == 2 and mat.shape[1] == span * 2:
+        mat = mat.reshape(-1, span, 2)
+    elif mat.ndim == 3 and mat.shape[1:] == (span, 2):
+        pass
     else:
-        raise ValueError(f"Unexpected statematrix ndim {mat.ndim}, shape {mat.shape}")
+        raise ValueError(f"Unsupported statematrix shape {mat.shape}; expected pitch list or (t,{span},2)")
 
-    # create MIDI file with melody and chord tracks
+    # Create MIDI with melody and chord tracks
     mid = mido.MidiFile()
     mid.ticks_per_beat = tick_scale * 8
     melody_track = mido.MidiTrack()
     chord_track = mido.MidiTrack()
-    mid.tracks.append(melody_track)
-    mid.tracks.append(chord_track)
+    mid.tracks.extend([melody_track, chord_track])
 
-    # initialize timing and previous states
-    last_melody_time = 0
-    last_chord_time = 0
-    prev_melody = [[0, 0] for _ in range(span)]
+    last_m_time = 0
+    last_c_time = 0
+    prev_m = [[0, 0] for _ in range(span)]
     prev_chord = None
-    active_chord_notes: List[int] = []
+    active_chords: List[int] = []
 
-    # iterate through each timestep
     for t, frame in enumerate(mat):
-        # chord handling
-        cur_chord = chord_seq[t] if t < len(chord_seq) else None
-        if cur_chord != prev_chord:
-            # end previous chord
-            for note in active_chord_notes:
-                delta = (t - last_chord_time) * tick_scale
-                chord_track.append(
-                    mido.Message('note_off', note=note, velocity=0, time=delta)
-                )
-                last_chord_time = t
-            active_chord_notes = []
-            # start new chord
-            if cur_chord is not None:
-                triad = [cur_chord, cur_chord + 4, cur_chord + 7]
+        # Chord handling
+        cur_ch = chord_seq[t] if t < len(chord_seq) else None
+        if cur_ch != prev_chord:
+            # Turn off old chord notes
+            for note in active_chords:
+                delta = (t - last_c_time) * tick_scale
+                chord_track.append(mido.Message('note_off', note=note, velocity=0, time=delta))
+                last_c_time = t
+            active_chords = []
+            # Turn on new chord triad
+            if cur_ch is not None:
+                triad = [cur_ch, cur_ch + 4, cur_ch + 7]
                 for note in triad:
-                    delta = (t - last_chord_time) * tick_scale
-                    chord_track.append(
-                        mido.Message('note_on', note=note, velocity=40, time=delta)
-                    )
-                    last_chord_time = t
-                active_chord_notes = triad
-            prev_chord = cur_chord
+                    delta = (t - last_c_time) * tick_scale
+                    chord_track.append(mido.Message('note_on', note=note, velocity=40, time=delta))
+                    last_c_time = t
+                active_chords = triad
+            prev_chord = cur_ch
 
-        # melody note events
-        offs = [i for i, (cur, pr) in enumerate(zip(frame, prev_melody)) if pr[0] == 1 and cur[0] == 0]
-        ons  = [i for i, (cur, pr) in enumerate(zip(frame, prev_melody)) if cur[0] == 1 and pr[0] == 0]
+        # Melody handling
+        offs = [i for i, (c, p) in enumerate(zip(frame, prev_m)) if p[0] and not c[0]]
+        ons  = [i for i, (c, p) in enumerate(zip(frame, prev_m)) if c[0] and not p[0]]
+        for idx in offs:
+            delta = (t - last_m_time) * tick_scale
+            melody_track.append(mido.Message('note_off', note=idx + lower_bound, velocity=0, time=delta))
+            last_m_time = t
+        for idx in ons:
+            delta = (t - last_m_time) * tick_scale
+            melody_track.append(mido.Message('note_on', note=idx + lower_bound, velocity=40, time=delta))
+            last_m_time = t
+        prev_m = [row.copy() for row in frame]
 
-        for note_idx in offs:
-            delta = (t - last_melody_time) * tick_scale
-            melody_track.append(
-                mido.Message('note_off', note=note_idx + lower_bound, velocity=0, time=delta)
-            )
-            last_melody_time = t
-        for note_idx in ons:
-            delta = (t - last_melody_time) * tick_scale
-            melody_track.append(
-                mido.Message('note_on', note=note_idx + lower_bound, velocity=40, time=delta)
-            )
-            last_melody_time = t
-
-        prev_melody = [row.copy() for row in frame]
-
-    # end any remaining chord notes
-    for note in active_chord_notes:
-        chord_track.append(
-            mido.Message('note_off', note=note, velocity=0, time=tick_scale)
-        )
-    # close tracks
+    # End remaining notes
+    for note in active_chords:
+        chord_track.append(mido.Message('note_off', note=note, velocity=0, time=tick_scale))
     melody_track.append(mido.MetaMessage('end_of_track', time=tick_scale))
     chord_track.append(mido.MetaMessage('end_of_track', time=0))
 
-    # save file
     mid.save(file_path)
