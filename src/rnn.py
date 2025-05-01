@@ -186,4 +186,5 @@ if __name__ == "__main__":
     melody = generate_melody(seed, g_id, m_id, length=200)
     chords = generate_chords(melody, g_id, m_id)
     melody = scaler.inverse_transform(melody)
-    midi_tools.sequence_to_midi(melody, chords, "output_generated.mid")
+    midi_tools.note_state_matrix_to_midi(melody, chords, "output_generated.mid")
+

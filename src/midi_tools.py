@@ -73,27 +73,135 @@ def midi_to_note_state_matrix(
 
     return statematrix
 
-
-
 def note_state_matrix_to_midi(
     statematrix: List[List[List[int]]],
-    name: str = "example",
+    chord_seq: List[int],
+    file_path: str,
     lower_bound: int = 24,
     upper_bound: int = 102,
     tick_scale: int = 55
 ) -> None:
     """
-    Convert a note-state matrix back into a MIDI file using mido.
+    Convert a note-state matrix and an underlying chord sequence into a MIDI file.
+    Chord sequence entries are interpreted as MIDI root pitches, with major triads constructed.
+
+    Parameters:
+    - statematrix: List of [ [on, new], … ] frames of length span = upper_bound-lower_bound
+    - chord_seq:   List of MIDI pitch numbers for chord roots
+    - file_path:   Path where the .mid file will be saved
+    - lower_bound: Lowest MIDI pitch (inclusive) for melody
+    - upper_bound: Highest MIDI pitch (exclusive) for melody
+    - tick_scale:  Multiplier for timing resolution
     """
+    # normalize bounds
+    lower_bound = int(lower_bound)
+    upper_bound = int(upper_bound)
     span = upper_bound - lower_bound
+
+    # prepare state matrix
     mat = np.array(statematrix)
-    # reshape if passed as 2D
     if mat.ndim == 2:
         mat = mat.reshape(-1, span * 2)
         mat = np.dstack((mat[:, :span], mat[:, span:]))
 
+    # create MIDI file with two tracks: melody and chords
     mid = mido.MidiFile()
-    mid.ticks_per_beat = tick_scale * 8  # keep relative timing
+    mid.ticks_per_beat = tick_scale * 8
+    melody_track = mido.MidiTrack()
+    chord_track = mido.MidiTrack()
+    mid.tracks.append(melody_track)
+    mid.tracks.append(chord_track)
+
+    # initialize timing and previous states
+    last_melody_time = 0
+    last_chord_time = 0
+    prev_melody = [[0, 0] for _ in range(span)]
+    prev_chord = None
+    active_chord_notes: List[int] = []
+
+    # iterate through timesteps
+    for t, frame in enumerate(mat):
+        # handle chord changes
+        cur_chord = chord_seq[t] if t < len(chord_seq) else None
+        if cur_chord != prev_chord:
+            # turn off previous chord notes
+            for note in active_chord_notes:
+                delta = (t - last_chord_time) * tick_scale
+                chord_track.append(
+                    mido.Message('note_off', note=note, velocity=0, time=delta)
+                )
+                last_chord_time = t
+
+            active_chord_notes = []
+            if cur_chord is not None:
+                # build a major triad: root, major third, perfect fifth
+                triad = [cur_chord, cur_chord + 4, cur_chord + 7]
+                for note in triad:
+                    delta = (t - last_chord_time) * tick_scale
+                    chord_track.append(
+                        mido.Message('note_on', note=note, velocity=40, time=delta)
+                    )
+                    last_chord_time = t
+                active_chord_notes = triad
+
+            prev_chord = cur_chord
+
+        # handle melody note events
+        offs = [i for i, (cur, pr) in enumerate(zip(frame, prev_melody)) if pr[0] == 1 and cur[0] == 0]
+        ons  = [i for i, (cur, pr) in enumerate(zip(frame, prev_melody)) if cur[0] == 1 and pr[0] == 0]
+
+        for note_idx in offs:
+            delta = (t - last_melody_time) * tick_scale
+            melody_track.append(
+                mido.Message('note_off', note=note_idx + lower_bound, velocity=0, time=delta)
+            )
+            last_melody_time = t
+        for note_idx in ons:
+            delta = (t - last_melody_time) * tick_scale
+            melody_track.append(
+                mido.Message('note_on', note=note_idx + lower_bound, velocity=40, time=delta)
+            )
+            last_melody_time = t
+
+        prev_melody = [row.copy() for row in frame]
+
+    # end any remaining chord notes
+    for note in active_chord_notes:
+        chord_track.append(
+            mido.Message('note_off', note=note, velocity=0, time=tick_scale)
+        )
+    # end tracks
+    melody_track.append(mido.MetaMessage('end_of_track', time=tick_scale))
+    chord_track.append(mido.MetaMessage('end_of_track', time=0))
+
+    # save MIDI file
+    mid.save(file_path)
+
+    """
+    Convert a note-state matrix (and optional chord sequence) into a MIDI file using mido.
+    
+    Parameters:
+    - statematrix: List of [ [on, new], … ] frames of length span = upper_bound-lower_bound
+    - chord_seq:   List of chord indices (currently unused)
+    - file_path:   Path where the .mid file will be saved
+    - lower_bound: Lowest MIDI pitch (inclusive)
+    - upper_bound: Highest MIDI pitch (exclusive)
+    - tick_scale:  Multiplier for timing resolution
+    """
+    # ensure bounds are integers
+    lower_bound = int(lower_bound)
+    upper_bound = int(upper_bound)
+    span = upper_bound - lower_bound
+
+    # prepare the matrix
+    mat = np.array(statematrix)
+    if mat.ndim == 2:
+        # reshape flattened frames back into [timesteps, span, 2]
+        mat = mat.reshape(-1, span * 2)
+        mat = np.dstack((mat[:, :span], mat[:, span:]))
+
+    mid = mido.MidiFile()
+    mid.ticks_per_beat = tick_scale * 8
     track = mido.MidiTrack()
     mid.tracks.append(track)
 
@@ -101,21 +209,26 @@ def note_state_matrix_to_midi(
     prev = [[0, 0] for _ in range(span)]
 
     for t, frame in enumerate(mat):
-        # collect note-offs and note-ons
+        # notes that stopped
         offs = [i for i, (cur, pr) in enumerate(zip(frame, prev)) if pr[0] == 1 and cur[0] == 0]
+        # notes that started (or are newly held)
         ons  = [i for i, (cur, pr) in enumerate(zip(frame, prev)) if cur[0] == 1 and (pr[0] == 0 or cur[1] == 1)]
 
         for note in offs:
             delta = (t - last_time) * tick_scale
-            track.append(mido.Message('note_off', note=note+lower_bound, velocity=0, time=delta))
+            track.append(
+                mido.Message('note_off', note=note + lower_bound, velocity=0, time=delta)
+            )
             last_time = t
         for note in ons:
             delta = (t - last_time) * tick_scale
-            track.append(mido.Message('note_on',  note=note+lower_bound, velocity=40, time=delta))
+            track.append(
+                mido.Message('note_on', note=note + lower_bound, velocity=40, time=delta)
+            )
             last_time = t
 
         prev = [row.copy() for row in frame]
 
     # end of track
     track.append(mido.MetaMessage('end_of_track', time=tick_scale))
-    mid.save(f"{name}.mid")
+    mid.save(file_path)
