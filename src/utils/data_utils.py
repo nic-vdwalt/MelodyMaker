@@ -3,24 +3,24 @@ import os, glob
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import utils.midi_utils as midi_utils
-import filter as gm
+# import filter as gm
 from config import MIDI_DIR, LOWER_BOUND, UPPER_BOUND, SEQ_LEN
 
-def load_label_encoders():
-    raw_genres = gm.Genres()
-    raw_moods  = gm.Moods()
+# def load_label_encoders():
+#     raw_genres = gm.Genres()
+#     raw_moods  = gm.Moods()
 
-    if isinstance(raw_genres, str) or not hasattr(raw_genres, '__iter__'):
-        raw_genres = [raw_genres]
-    if isinstance(raw_moods, str) or not hasattr(raw_moods, '__iter__'):
-        raw_moods = [raw_moods]
+#     if isinstance(raw_genres, str) or not hasattr(raw_genres, '__iter__'):
+#         raw_genres = [raw_genres]
+#     if isinstance(raw_moods, str) or not hasattr(raw_moods, '__iter__'):
+#         raw_moods = [raw_moods]
 
-    if not raw_genres or not raw_moods:
-        raise ValueError("gm.Genres() or gm.Moods() returned empty.")
+#     if not raw_genres or not raw_moods:
+#         raise ValueError("gm.Genres() or gm.Moods() returned empty.")
 
-    genre_enc = LabelEncoder().fit(raw_genres)
-    mood_enc  = LabelEncoder().fit(raw_moods)
-    return raw_genres, raw_moods, genre_enc, mood_enc
+#     genre_enc = LabelEncoder().fit(raw_genres)
+#     mood_enc  = LabelEncoder().fit(raw_moods)
+#     return raw_genres, raw_moods, genre_enc, mood_enc
 
 
 def prepare_training_data(
