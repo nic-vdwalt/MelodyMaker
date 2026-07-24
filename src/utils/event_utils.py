@@ -38,10 +38,12 @@ def midi_to_event_sequence(file_path: str) -> List[int]:
     ticks_per_bin = max(1, midi.ticks_per_beat // BEAT_SUBDIV)
     events = []
     elapsed_ticks = 0
+    absolute_ticks = 0
     velocity = None
 
-    for message in MidiFile(file_path).merged_track:
+    for message in midi.merged_track:
         elapsed_ticks += message.time
+        absolute_ticks += message.time
         is_note_on = message.type == 'note_on' and message.velocity > 0
         is_note_off = message.type == 'note_off' or (
             message.type == 'note_on' and message.velocity == 0
@@ -58,7 +60,7 @@ def midi_to_event_sequence(file_path: str) -> List[int]:
             bins -= step
         elapsed_ticks = 0
 
-        beat_pos = int(message.time // ticks_per_bin) % BEAT_SUBDIV
+        beat_pos = int(absolute_ticks // ticks_per_bin) % BEAT_SUBDIV
         events.append(EVENT2IDX[BEAT_POS(beat_pos)])
         if is_note_on:
             bucket = _velocity_bucket(message.velocity)

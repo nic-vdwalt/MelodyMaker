@@ -90,7 +90,7 @@ app_init :: proc(state: ^App) {
 	assert(state != nil)
 	set_input(&state.project_root, "..")
 	set_input(&state.midi_dir, "Rock_Music_Midi")
-	set_input(&state.model_path, "melody_model.keras")
+	set_input(&state.model_path, "melody_model.h5")
 	set_input(&state.seed_path, "seed.pkl")
 	set_input(&state.epochs, "20")
 	set_input(&state.batch_size, "64")
@@ -466,7 +466,7 @@ frame :: proc() {
 		&app,
 		&app.model_path,
 		"Model output",
-		"melody_model.keras",
+		"melody_model.h5",
 		ui.focus_id(3),
 		form_x,
 		form_y,
