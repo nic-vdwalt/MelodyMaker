@@ -289,21 +289,29 @@ input_field :: proc(
 	x, y, w: i32,
 ) {
 	assert(state != nil && box != nil)
-	ui.draw_text(
+	ui.draw_text_frame(
+		&ui_frame,
 		strings.clone_to_cstring(label, context.temp_allocator),
 		x,
 		y,
 		ui.FONT_SIZE_LABEL,
-		ui.theme.fg_label,
+		ui.ui_frame_theme(&ui_frame).fg_label,
 	)
 	focus := ui.ui_focus(&state.form, id)
-	ui.focus_opt_click(&ui_frame, focus, x, y + ui.sc(21), w, ui.sc(36))
+	ui.focus_opt_click(
+		&ui_frame,
+		focus,
+		x,
+		y + ui.ui_frame_sc(&ui_frame, 21),
+		w,
+		ui.ui_frame_sc(&ui_frame, 36),
+	)
 	_ = ui.input_at(
 		&ui_frame,
 		x,
-		y + ui.sc(21),
+		y + ui.ui_frame_sc(&ui_frame, 21),
 		w,
-		ui.sc(36),
+		ui.ui_frame_sc(&ui_frame, 36),
 		box,
 		placeholder,
 		ui.focus_opt_focused(focus),
@@ -313,45 +321,59 @@ input_field :: proc(
 
 metric_card :: proc(x, y, w, h: i32, label, value: string, color: rl.Color) {
 	assert(w > 0 && h > 0)
-	ui.draw_card_bg({f32(x), f32(y), f32(w), f32(h)}, ui.theme.bg_panel, color, ui.sc(3))
-	ui.draw_text(
-		strings.clone_to_cstring(label, context.temp_allocator),
-		x + ui.sc(14),
-		y + ui.sc(12),
-		ui.FONT_SIZE_LABEL,
-		ui.theme.fg_label,
+	ui.draw_card_bg_frame(
+		&ui_frame,
+		{f32(x), f32(y), f32(w), f32(h)},
+		ui.ui_frame_theme(&ui_frame).bg_panel,
+		color,
+		ui.ui_frame_sc(&ui_frame, 3),
 	)
-	ui.draw_text(
+	ui.draw_text_frame(
+		&ui_frame,
+		strings.clone_to_cstring(label, context.temp_allocator),
+		x + ui.ui_frame_sc(&ui_frame, 14),
+		y + ui.ui_frame_sc(&ui_frame, 12),
+		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_theme(&ui_frame).fg_label,
+	)
+	ui.draw_text_frame(
+		&ui_frame,
 		strings.clone_to_cstring(value, context.temp_allocator),
-		x + ui.sc(14),
-		y + ui.sc(37),
+		x + ui.ui_frame_sc(&ui_frame, 14),
+		y + ui.ui_frame_sc(&ui_frame, 37),
 		ui.FONT_SIZE_LARGE,
-		ui.theme.fg_primary,
+		ui.ui_frame_theme(&ui_frame).fg_primary,
 	)
 }
 
 loss_chart :: proc(state: ^App, x, y, w, h: i32) {
 	assert(state != nil)
-	ui.draw_card_bg({f32(x), f32(y), f32(w), f32(h)}, ui.theme.bg_panel)
-	ui.draw_text(
-		"LOSS HISTORY",
-		x + ui.sc(16),
-		y + ui.sc(14),
-		ui.FONT_SIZE_LABEL,
-		ui.theme.fg_label,
+	ui.draw_card_bg_frame(
+		&ui_frame,
+		{f32(x), f32(y), f32(w), f32(h)},
+		ui.ui_frame_theme(&ui_frame).bg_panel,
 	)
-	plot_x := x + ui.sc(16)
-	plot_y := y + ui.sc(42)
-	plot_w := w - ui.sc(32)
-	plot_h := h - ui.sc(60)
-	rl.DrawRectangle(plot_x, plot_y, plot_w, plot_h, ui.theme.bg_input)
+	ui.draw_text_frame(
+		&ui_frame,
+		"LOSS HISTORY",
+		x + ui.ui_frame_sc(&ui_frame, 16),
+		y + ui.ui_frame_sc(&ui_frame, 14),
+		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_theme(&ui_frame).fg_label,
+	)
+	plot_x := x + ui.ui_frame_sc(&ui_frame, 16)
+	plot_y := y + ui.ui_frame_sc(&ui_frame, 42)
+	plot_w := w - ui.ui_frame_sc(&ui_frame, 32)
+	plot_h := h - ui.ui_frame_sc(&ui_frame, 60)
+	rl.DrawRectangle(plot_x, plot_y, plot_w, plot_h, ui.ui_frame_theme(&ui_frame).bg_input)
 	if state.loss_count < 2 {
-		ui.draw_text(
+		ui.draw_text_frame(
+			&ui_frame,
 			"Loss appears after the first epoch",
-			plot_x + ui.sc(12),
-			plot_y + ui.sc(12),
+			plot_x + ui.ui_frame_sc(&ui_frame, 12),
+			plot_y + ui.ui_frame_sc(&ui_frame, 12),
 			ui.FONT_SIZE_NOTE,
-			ui.theme.fg_secondary,
+			ui.ui_frame_theme(&ui_frame).fg_secondary,
 		)
 		return
 	}
@@ -364,10 +386,10 @@ loss_chart :: proc(state: ^App, x, y, w, h: i32) {
 		x2 := f32(plot_x) + f32(index) / f32(state.loss_count - 1) * f32(plot_w)
 		y1 := f32(plot_y + plot_h) - state.losses[index - 1] / maximum * f32(plot_h)
 		y2 := f32(plot_y + plot_h) - state.losses[index] / maximum * f32(plot_h)
-		rl.DrawLineEx({x1, y1}, {x2, y2}, 2, ui.theme.fg_accent)
+		rl.DrawLineEx({x1, y1}, {x2, y2}, 2, ui.ui_frame_theme(&ui_frame).fg_accent)
 		vy1 := f32(plot_y + plot_h) - state.val_losses[index - 1] / maximum * f32(plot_h)
 		vy2 := f32(plot_y + plot_h) - state.val_losses[index] / maximum * f32(plot_h)
-		rl.DrawLineEx({x1, vy1}, {x2, vy2}, 2, ui.theme.fg_success)
+		rl.DrawLineEx({x1, vy1}, {x2, vy2}, 2, ui.ui_frame_theme(&ui_frame).fg_success)
 	}
 }
 
@@ -386,45 +408,71 @@ frame :: proc() {
 	ui.ui_runtime_dpi_refresh(&ui_runtime)
 	ui.ui_frame_begin(&ui_frame, &ui_runtime)
 	rl.BeginDrawing()
-	rl.ClearBackground(ui.theme.bg_app)
+	rl.ClearBackground(ui.ui_frame_theme(&ui_frame).bg_app)
 
 	sw := rl.GetScreenWidth()
 	sh := rl.GetScreenHeight()
-	header_h := ui.sc(76)
-	rl.DrawRectangle(0, 0, sw, header_h, ui.theme.bg_panel)
-	rl.DrawRectangle(0, header_h - 1, sw, 1, ui.theme.border_subtle)
-	ui.draw_text("MELODY", ui.sc(28), ui.sc(18), ui.FONT_SIZE_LARGE, ui.theme.fg_accent)
-	ui.draw_text("Training Studio", ui.sc(28), ui.sc(43), ui.FONT_SIZE_NOTE, ui.theme.fg_secondary)
-	status_color := ui.theme.fg_success if app.status.phase == "complete" else ui.theme.fg_accent
-	if app.status.phase == "error" do status_color = ui.theme.fg_error
+	header_h := ui.ui_frame_sc(&ui_frame, 76)
+	rl.DrawRectangle(0, 0, sw, header_h, ui.ui_frame_theme(&ui_frame).bg_panel)
+	rl.DrawRectangle(0, header_h - 1, sw, 1, ui.ui_frame_theme(&ui_frame).border_subtle)
+	ui.draw_text_frame(
+		&ui_frame,
+		"MELODY",
+		ui.ui_frame_sc(&ui_frame, 28),
+		ui.ui_frame_sc(&ui_frame, 18),
+		ui.FONT_SIZE_LARGE,
+		ui.ui_frame_theme(&ui_frame).fg_accent,
+	)
+	ui.draw_text_frame(
+		&ui_frame,
+		"Training Studio",
+		ui.ui_frame_sc(&ui_frame, 28),
+		ui.ui_frame_sc(&ui_frame, 43),
+		ui.FONT_SIZE_NOTE,
+		ui.ui_frame_theme(&ui_frame).fg_secondary,
+	)
+	status_color :=
+		ui.ui_frame_theme(&ui_frame).fg_success if app.status.phase == "complete" else ui.ui_frame_theme(&ui_frame).fg_accent
+	if app.status.phase == "error" do status_color = ui.ui_frame_theme(&ui_frame).fg_error
 	status_text := phase_label(&app)
-	pill_w := ui.sc(190)
+	pill_w := ui.ui_frame_sc(&ui_frame, 190)
 	_ = ui.status_pill(
 		status_text,
-		sw - pill_w - ui.sc(28),
-		ui.sc(26),
+		sw - pill_w - ui.ui_frame_sc(&ui_frame, 28),
+		ui.ui_frame_sc(&ui_frame, 26),
 		ui.FONT_SIZE_NOTE,
 		status_color,
 	)
 
-	pad := ui.sc(24)
-	gap := ui.sc(18)
-	left_w := min(ui.sc(390), sw / 3)
+	pad := ui.ui_frame_sc(&ui_frame, 24)
+	gap := ui.ui_frame_sc(&ui_frame, 18)
+	left_w := min(ui.ui_frame_sc(&ui_frame, 390), sw / 3)
 	content_y := header_h + pad
 	content_h := sh - content_y - pad
-	ui.draw_card_bg({f32(pad), f32(content_y), f32(left_w), f32(content_h)}, ui.theme.bg_panel)
-	form_x := pad + ui.sc(18)
-	form_w := left_w - ui.sc(36)
-	form_y := content_y + ui.sc(18)
-	ui.draw_text("TRAINING CONFIGURATION", form_x, form_y, ui.FONT_SIZE_LABEL, ui.theme.fg_label)
-	form_y += ui.sc(28)
+	ui.draw_card_bg_frame(
+		&ui_frame,
+		{f32(pad), f32(content_y), f32(left_w), f32(content_h)},
+		ui.ui_frame_theme(&ui_frame).bg_panel,
+	)
+	form_x := pad + ui.ui_frame_sc(&ui_frame, 18)
+	form_w := left_w - ui.ui_frame_sc(&ui_frame, 36)
+	form_y := content_y + ui.ui_frame_sc(&ui_frame, 18)
+	ui.draw_text_frame(
+		&ui_frame,
+		"TRAINING CONFIGURATION",
+		form_x,
+		form_y,
+		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_theme(&ui_frame).fg_label,
+	)
+	form_y += ui.ui_frame_sc(&ui_frame, 28)
 	ui.ui_begin_frame(
 		&app.form,
 		&ui_frame,
 		form_x,
 		form_y,
 		form_w,
-		content_h - ui.sc(110),
+		content_h - ui.ui_frame_sc(&ui_frame, 110),
 		gap = 0,
 	)
 	input_field(
@@ -435,14 +483,14 @@ frame :: proc() {
 		ui.focus_id(1),
 		form_x,
 		form_y,
-		form_w - ui.sc(90),
+		form_w - ui.ui_frame_sc(&ui_frame, 90),
 	)
 	if ui.btn_at(
 		&ui_frame,
-		form_x + form_w - ui.sc(80),
-		form_y + ui.sc(21),
-		ui.sc(80),
-		ui.sc(36),
+		form_x + form_w - ui.ui_frame_sc(&ui_frame, 80),
+		form_y + ui.ui_frame_sc(&ui_frame, 21),
+		ui.ui_frame_sc(&ui_frame, 80),
+		ui.ui_frame_sc(&ui_frame, 36),
 		"Choose",
 	) {
 		if path, ok := sys.open_file_dialog("Choose any file in MelodyMaker"); ok {
@@ -450,7 +498,7 @@ frame :: proc() {
 			delete(path)
 		}
 	}
-	form_y += ui.sc(72)
+	form_y += ui.ui_frame_sc(&ui_frame, 72)
 	input_field(
 		&app,
 		&app.midi_dir,
@@ -461,7 +509,7 @@ frame :: proc() {
 		form_y,
 		form_w,
 	)
-	form_y += ui.sc(72)
+	form_y += ui.ui_frame_sc(&ui_frame, 72)
 	input_field(
 		&app,
 		&app.model_path,
@@ -472,7 +520,7 @@ frame :: proc() {
 		form_y,
 		form_w,
 	)
-	form_y += ui.sc(72)
+	form_y += ui.ui_frame_sc(&ui_frame, 72)
 	input_field(
 		&app,
 		&app.seed_path,
@@ -483,7 +531,7 @@ frame :: proc() {
 		form_y,
 		form_w,
 	)
-	form_y += ui.sc(72)
+	form_y += ui.ui_frame_sc(&ui_frame, 72)
 	third := (form_w - gap * 2) / 3
 	input_field(&app, &app.epochs, "Epochs", "20", ui.focus_id(5), form_x, form_y, third)
 	input_field(
@@ -507,60 +555,62 @@ frame :: proc() {
 		third,
 	)
 	ui.ui_end(&app.form)
-	button_y := content_y + content_h - ui.sc(62)
+	button_y := content_y + content_h - ui.ui_frame_sc(&ui_frame, 62)
 	if app.has_process {
-		if ui.btn_at(&ui_frame, form_x, button_y, form_w, ui.sc(42), "Stop training", .Danger) do training_stop(&app)
+		if ui.btn_at(&ui_frame, form_x, button_y, form_w, ui.ui_frame_sc(&ui_frame, 42), "Stop training", .Danger) do training_stop(&app)
 	} else {
-		if ui.btn_at(&ui_frame, form_x, button_y, form_w, ui.sc(42), "Start training", .Primary) do training_start(&app)
+		if ui.btn_at(&ui_frame, form_x, button_y, form_w, ui.ui_frame_sc(&ui_frame, 42), "Start training", .Primary) do training_start(&app)
 	}
 
 	right_x := pad + left_w + gap
 	right_w := sw - right_x - pad
-	card_gap := ui.sc(14)
+	card_gap := ui.ui_frame_sc(&ui_frame, 14)
 	card_w := (right_w - card_gap * 2) / 3
 	metric_card(
 		right_x,
 		content_y,
 		card_w,
-		ui.sc(82),
+		ui.ui_frame_sc(&ui_frame, 82),
 		"EPOCH",
 		fmt.tprintf(
 			"%d / %d",
 			app.status.epoch,
 			max(app.status.epochs, input_int(&app.epochs, 20)),
 		),
-		ui.theme.fg_accent,
+		ui.ui_frame_theme(&ui_frame).fg_accent,
 	)
 	metric_card(
 		right_x + card_w + card_gap,
 		content_y,
 		card_w,
-		ui.sc(82),
+		ui.ui_frame_sc(&ui_frame, 82),
 		"TRAIN LOSS",
 		fmt.tprintf("%.4f", app.status.loss),
-		ui.theme.fg_tool,
+		ui.ui_frame_theme(&ui_frame).fg_tool,
 	)
 	metric_card(
 		right_x + (card_w + card_gap) * 2,
 		content_y,
 		card_w,
-		ui.sc(82),
+		ui.ui_frame_sc(&ui_frame, 82),
 		"VALIDATION",
 		fmt.tprintf("%.4f", app.status.val_loss),
-		ui.theme.fg_success,
+		ui.ui_frame_theme(&ui_frame).fg_success,
 	)
 
-	progress_y := content_y + ui.sc(100)
-	ui.draw_card_bg(
-		{f32(right_x), f32(progress_y), f32(right_w), f32(ui.sc(104))},
-		ui.theme.bg_panel,
+	progress_y := content_y + ui.ui_frame_sc(&ui_frame, 100)
+	ui.draw_card_bg_frame(
+		&ui_frame,
+		{f32(right_x), f32(progress_y), f32(right_w), f32(ui.ui_frame_sc(&ui_frame, 104))},
+		ui.ui_frame_theme(&ui_frame).bg_panel,
 	)
-	ui.draw_text(
+	ui.draw_text_frame(
+		&ui_frame,
 		strings.clone_to_cstring(status_text, context.temp_allocator),
-		right_x + ui.sc(16),
-		progress_y + ui.sc(14),
+		right_x + ui.ui_frame_sc(&ui_frame, 16),
+		progress_y + ui.ui_frame_sc(&ui_frame, 14),
 		ui.FONT_SIZE_BODY,
-		ui.theme.fg_primary,
+		ui.ui_frame_theme(&ui_frame).fg_primary,
 	)
 	progress_detail := "Configure the dataset and start a run."
 	if app.status.phase == "scanning" {
@@ -583,49 +633,55 @@ frame :: proc() {
 	} else if app.status.phase == "error" {
 		progress_detail = app.status.message
 	}
-	ui.draw_text(
+	ui.draw_text_frame(
+		&ui_frame,
 		strings.clone_to_cstring(progress_detail, context.temp_allocator),
-		right_x + ui.sc(16),
-		progress_y + ui.sc(41),
+		right_x + ui.ui_frame_sc(&ui_frame, 16),
+		progress_y + ui.ui_frame_sc(&ui_frame, 41),
 		ui.FONT_SIZE_NOTE,
-		ui.theme.fg_secondary,
+		ui.ui_frame_theme(&ui_frame).fg_secondary,
 	)
 	ui.progress_bar(
-		right_x + ui.sc(16),
-		progress_y + ui.sc(73),
-		right_w - ui.sc(32),
-		ui.sc(10),
+		right_x + ui.ui_frame_sc(&ui_frame, 16),
+		progress_y + ui.ui_frame_sc(&ui_frame, 73),
+		right_w - ui.ui_frame_sc(&ui_frame, 32),
+		ui.ui_frame_sc(&ui_frame, 10),
 		app.status.progress,
 		status_color,
 	)
-	if app.has_process do ui.spinner(right_x + right_w - ui.sc(30), progress_y + ui.sc(24), ui.scf(9))
+	if app.has_process do ui.spinner(right_x + right_w - ui.ui_frame_sc(&ui_frame, 30), progress_y + ui.ui_frame_sc(&ui_frame, 24), ui.ui_frame_scf(&ui_frame, 9))
 
-	chart_y := progress_y + ui.sc(122)
+	chart_y := progress_y + ui.ui_frame_sc(&ui_frame, 122)
 	loss_chart(
 		&app,
 		right_x,
 		chart_y,
 		right_w,
-		max(ui.sc(180), content_y + content_h - chart_y - ui.sc(72)),
+		max(
+			ui.ui_frame_sc(&ui_frame, 180),
+			content_y + content_h - chart_y - ui.ui_frame_sc(&ui_frame, 72),
+		),
 	)
-	footer_y := content_y + content_h - ui.sc(54)
+	footer_y := content_y + content_h - ui.ui_frame_sc(&ui_frame, 54)
 	if app.error_message != "" {
-		ui.draw_text(
+		ui.draw_text_frame(
+			&ui_frame,
 			strings.clone_to_cstring(app.error_message, context.temp_allocator),
 			right_x,
 			footer_y,
 			ui.FONT_SIZE_NOTE,
-			ui.theme.fg_error,
+			ui.ui_frame_theme(&ui_frame).fg_error,
 		)
 	} else {
 		footer := "TensorFlow is required in .venv before training can start."
 		if app.status.phase == "complete" do footer = "Model and seed are ready for MIDI generation."
-		ui.draw_text(
+		ui.draw_text_frame(
+			&ui_frame,
 			strings.clone_to_cstring(footer, context.temp_allocator),
 			right_x,
 			footer_y,
 			ui.FONT_SIZE_NOTE,
-			ui.theme.fg_secondary,
+			ui.ui_frame_theme(&ui_frame).fg_secondary,
 		)
 	}
 
@@ -644,8 +700,6 @@ main :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
 	rl.SetWindowMinSize(960, 640)
 	rl.SetExitKey(.KEY_NULL)
-	ui.init_font()
-	ui.set_font_dpi(rl.GetWindowScaleDPI().x)
 	ui.apply_window_style()
 	ui.titlebar_init()
 	ui.ui_runtime_init(&ui_runtime)
