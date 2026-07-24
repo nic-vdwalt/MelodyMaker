@@ -8,7 +8,7 @@ MELODY_MODEL = melody_model.h5
 CHORD_MODEL = chord_model.h5
 SEED = seed.pkl
 
-.PHONY: clean train generate install
+.PHONY: clean train generate install client client-check
 
 clean:
 	# remove Python bytecode files and build artifacts
@@ -24,3 +24,9 @@ generate:
 
 install:
 	pip install -r requirements.txt
+
+client:
+	./client-odin/build.sh
+
+client-check:
+	./client-odin/test.sh

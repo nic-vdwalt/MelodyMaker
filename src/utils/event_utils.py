@@ -29,6 +29,49 @@ EVENT2IDX = {event: idx for idx, event in enumerate(VOCAB)}
 IDX2EVENT = {idx: event for event, idx in EVENT2IDX.items()}
 
 
+def _velocity_bucket(velocity: int) -> int:
+    return min(VELOCITY_BUCKETS, key=lambda bucket: abs(bucket - velocity))
+
+
+def midi_to_event_sequence(file_path: str) -> List[int]:
+    midi = MidiFile(file_path)
+    ticks_per_bin = max(1, midi.ticks_per_beat // BEAT_SUBDIV)
+    events = []
+    elapsed_ticks = 0
+    velocity = None
+
+    for message in MidiFile(file_path).merged_track:
+        elapsed_ticks += message.time
+        is_note_on = message.type == 'note_on' and message.velocity > 0
+        is_note_off = message.type == 'note_off' or (
+            message.type == 'note_on' and message.velocity == 0
+        )
+        if not is_note_on and not is_note_off:
+            continue
+        if message.note < PITCH_MIN or message.note >= PITCH_MAX:
+            continue
+
+        bins = max(0, round(elapsed_ticks / ticks_per_bin))
+        while bins > 0:
+            step = min(bins, TIME_BINS[-1])
+            events.append(EVENT2IDX[TIME_SHIFT(step)])
+            bins -= step
+        elapsed_ticks = 0
+
+        beat_pos = int(message.time // ticks_per_bin) % BEAT_SUBDIV
+        events.append(EVENT2IDX[BEAT_POS(beat_pos)])
+        if is_note_on:
+            bucket = _velocity_bucket(message.velocity)
+            if bucket != velocity:
+                events.append(EVENT2IDX[VEL(bucket)])
+                velocity = bucket
+            events.append(EVENT2IDX[NOTE_ON(message.note)])
+        else:
+            events.append(EVENT2IDX[NOTE_OFF(message.note)])
+
+    return events
+
+
 def generate_events(
     model,
     seed_events: List[int],
@@ -76,7 +119,7 @@ def event_sequence_to_midi(
         if evt.startswith('time_shift_'):
             # accumulate delta time
             dt = int(evt.split('_')[2])
-            time_acc += dt
+            time_acc += dt * ticks_per_bin
         elif evt.startswith('beat_pos_'):
             # beat position feature (no direct MIDI action)
             continue

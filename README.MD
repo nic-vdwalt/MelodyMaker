@@ -25,6 +25,7 @@
 - **Model training**: Train melody and chord RNN models on your MIDI dataset.  
 - **Music generation**: Produce new MIDI files from trained models.  
 - **Configurable**: Easily adjust sequence length, model hyperparameters, and data directories.
+- **Native training studio**: Configure, launch, stop, and monitor training in an Ingot desktop client with live dataset and loss progress.
 
 ---
 
@@ -90,15 +91,22 @@ All configurable parameters live in `src/config.py`. Key settings include:
 
 > **Note:** You only need to run training once per dataset.
 
+Command line:
+
 ```bash
 make train
 ```
 
-This will:
+Native Ingot training studio:
 
-1. Preprocess all MIDI files in `MIDI_DIR`.  
-2. Train the melody RNN model (saved to `MELODY_MODEL_PATH`).  
-3. Train the chord RNN model (saved to `CHORD_MODEL_PATH`).  
+```bash
+make client
+./client-odin/dist/melody-trainer
+```
+
+The client expects Ingot at `../ingot` by default; set `INGOT=/path/to/ingot` to override it. It stores local form settings, launches `src/train.py` without a shell, and displays live scan, epoch, loss, and validation-loss progress. TensorFlow must be installed in `.venv` before a run can start.
+
+Training recursively discovers `.mid` and `.midi` files, skips macOS resource-fork files, streams windows through `tf.data`, and saves the event model and seed to the configured paths.
 
 ### Generation
 
@@ -120,7 +128,8 @@ This will:
 
 ```
 .
-├── Makefile              # Defines `train` and `generate` targets
+├── Makefile              # Training, generation, and client targets
+├── client-odin           # Native Ingot training studio
 ├── requirements.txt      # Python dependencies
 ├── README.md             # This document
 └── src
