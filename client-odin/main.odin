@@ -644,6 +644,8 @@ main :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
 	rl.SetWindowMinSize(960, 640)
 	rl.SetExitKey(.KEY_NULL)
+	ui.init_font()
+	ui.set_font_dpi(rl.GetWindowScaleDPI().x)
 	ui.apply_window_style()
 	ui.titlebar_init()
 	ui.ui_runtime_init(&ui_runtime)
