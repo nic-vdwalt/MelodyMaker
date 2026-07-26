@@ -69,6 +69,10 @@ App :: struct {
 pacer: ui.Frame_Pacer
 ui_runtime: ui.Ui_Runtime
 ui_frame: ui.Ui_Frame
+
+color_to_gfx :: proc(color: ui.Color) -> rl.Color {
+	return {color.r, color.g, color.b, color.a}
+}
 app: App
 
 set_input :: proc(box: ^ui.Input_Box, value: string) {
@@ -294,7 +298,7 @@ input_field :: proc(
 		strings.clone_to_cstring(label, context.temp_allocator),
 		x,
 		y,
-		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LABEL,
 		ui.ui_frame_theme(&ui_frame).fg_label,
 	)
 	focus := ui.ui_focus(&state.form, id)
@@ -319,7 +323,7 @@ input_field :: proc(
 	)
 }
 
-metric_card :: proc(x, y, w, h: i32, label, value: string, color: rl.Color) {
+metric_card :: proc(x, y, w, h: i32, label, value: string, color: ui.Color) {
 	assert(w > 0 && h > 0)
 	ui.draw_card_bg_frame(
 		&ui_frame,
@@ -333,7 +337,7 @@ metric_card :: proc(x, y, w, h: i32, label, value: string, color: rl.Color) {
 		strings.clone_to_cstring(label, context.temp_allocator),
 		x + ui.ui_frame_sc(&ui_frame, 14),
 		y + ui.ui_frame_sc(&ui_frame, 12),
-		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LABEL,
 		ui.ui_frame_theme(&ui_frame).fg_label,
 	)
 	ui.draw_text_frame(
@@ -341,7 +345,7 @@ metric_card :: proc(x, y, w, h: i32, label, value: string, color: rl.Color) {
 		strings.clone_to_cstring(value, context.temp_allocator),
 		x + ui.ui_frame_sc(&ui_frame, 14),
 		y + ui.ui_frame_sc(&ui_frame, 37),
-		ui.FONT_SIZE_LARGE,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LARGE,
 		ui.ui_frame_theme(&ui_frame).fg_primary,
 	)
 }
@@ -358,21 +362,27 @@ loss_chart :: proc(state: ^App, x, y, w, h: i32) {
 		"LOSS HISTORY",
 		x + ui.ui_frame_sc(&ui_frame, 16),
 		y + ui.ui_frame_sc(&ui_frame, 14),
-		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LABEL,
 		ui.ui_frame_theme(&ui_frame).fg_label,
 	)
 	plot_x := x + ui.ui_frame_sc(&ui_frame, 16)
 	plot_y := y + ui.ui_frame_sc(&ui_frame, 42)
 	plot_w := w - ui.ui_frame_sc(&ui_frame, 32)
 	plot_h := h - ui.ui_frame_sc(&ui_frame, 60)
-	rl.DrawRectangle(plot_x, plot_y, plot_w, plot_h, ui.ui_frame_theme(&ui_frame).bg_input)
+	rl.DrawRectangle(
+		plot_x,
+		plot_y,
+		plot_w,
+		plot_h,
+		color_to_gfx(ui.ui_frame_theme(&ui_frame).bg_input),
+	)
 	if state.loss_count < 2 {
 		ui.draw_text_frame(
 			&ui_frame,
 			"Loss appears after the first epoch",
 			plot_x + ui.ui_frame_sc(&ui_frame, 12),
 			plot_y + ui.ui_frame_sc(&ui_frame, 12),
-			ui.FONT_SIZE_NOTE,
+			ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 			ui.ui_frame_theme(&ui_frame).fg_secondary,
 		)
 		return
@@ -386,10 +396,15 @@ loss_chart :: proc(state: ^App, x, y, w, h: i32) {
 		x2 := f32(plot_x) + f32(index) / f32(state.loss_count - 1) * f32(plot_w)
 		y1 := f32(plot_y + plot_h) - state.losses[index - 1] / maximum * f32(plot_h)
 		y2 := f32(plot_y + plot_h) - state.losses[index] / maximum * f32(plot_h)
-		rl.DrawLineEx({x1, y1}, {x2, y2}, 2, ui.ui_frame_theme(&ui_frame).fg_accent)
+		rl.DrawLineEx({x1, y1}, {x2, y2}, 2, color_to_gfx(ui.ui_frame_theme(&ui_frame).fg_accent))
 		vy1 := f32(plot_y + plot_h) - state.val_losses[index - 1] / maximum * f32(plot_h)
 		vy2 := f32(plot_y + plot_h) - state.val_losses[index] / maximum * f32(plot_h)
-		rl.DrawLineEx({x1, vy1}, {x2, vy2}, 2, ui.ui_frame_theme(&ui_frame).fg_success)
+		rl.DrawLineEx(
+			{x1, vy1},
+			{x2, vy2},
+			2,
+			color_to_gfx(ui.ui_frame_theme(&ui_frame).fg_success),
+		)
 	}
 }
 
@@ -408,19 +423,25 @@ frame :: proc() {
 	ui.ui_runtime_dpi_refresh(&ui_runtime)
 	ui.ui_frame_begin(&ui_frame, &ui_runtime)
 	rl.BeginDrawing()
-	rl.ClearBackground(ui.ui_frame_theme(&ui_frame).bg_app)
+	rl.ClearBackground(color_to_gfx(ui.ui_frame_theme(&ui_frame).bg_app))
 
 	sw := rl.GetScreenWidth()
 	sh := rl.GetScreenHeight()
 	header_h := ui.ui_frame_sc(&ui_frame, 76)
-	rl.DrawRectangle(0, 0, sw, header_h, ui.ui_frame_theme(&ui_frame).bg_panel)
-	rl.DrawRectangle(0, header_h - 1, sw, 1, ui.ui_frame_theme(&ui_frame).border_subtle)
+	rl.DrawRectangle(0, 0, sw, header_h, color_to_gfx(ui.ui_frame_theme(&ui_frame).bg_panel))
+	rl.DrawRectangle(
+		0,
+		header_h - 1,
+		sw,
+		1,
+		color_to_gfx(ui.ui_frame_theme(&ui_frame).border_subtle),
+	)
 	ui.draw_text_frame(
 		&ui_frame,
 		"MELODY",
 		ui.ui_frame_sc(&ui_frame, 28),
 		ui.ui_frame_sc(&ui_frame, 18),
-		ui.FONT_SIZE_LARGE,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LARGE,
 		ui.ui_frame_theme(&ui_frame).fg_accent,
 	)
 	ui.draw_text_frame(
@@ -428,7 +449,7 @@ frame :: proc() {
 		"Training Studio",
 		ui.ui_frame_sc(&ui_frame, 28),
 		ui.ui_frame_sc(&ui_frame, 43),
-		ui.FONT_SIZE_NOTE,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 		ui.ui_frame_theme(&ui_frame).fg_secondary,
 	)
 	status_color :=
@@ -437,10 +458,11 @@ frame :: proc() {
 	status_text := phase_label(&app)
 	pill_w := ui.ui_frame_sc(&ui_frame, 190)
 	_ = ui.status_pill(
+		&ui_frame,
 		status_text,
 		sw - pill_w - ui.ui_frame_sc(&ui_frame, 28),
 		ui.ui_frame_sc(&ui_frame, 26),
-		ui.FONT_SIZE_NOTE,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 		status_color,
 	)
 
@@ -462,7 +484,7 @@ frame :: proc() {
 		"TRAINING CONFIGURATION",
 		form_x,
 		form_y,
-		ui.FONT_SIZE_LABEL,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_LABEL,
 		ui.ui_frame_theme(&ui_frame).fg_label,
 	)
 	form_y += ui.ui_frame_sc(&ui_frame, 28)
@@ -609,7 +631,7 @@ frame :: proc() {
 		strings.clone_to_cstring(status_text, context.temp_allocator),
 		right_x + ui.ui_frame_sc(&ui_frame, 16),
 		progress_y + ui.ui_frame_sc(&ui_frame, 14),
-		ui.FONT_SIZE_BODY,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_BODY,
 		ui.ui_frame_theme(&ui_frame).fg_primary,
 	)
 	progress_detail := "Configure the dataset and start a run."
@@ -638,10 +660,11 @@ frame :: proc() {
 		strings.clone_to_cstring(progress_detail, context.temp_allocator),
 		right_x + ui.ui_frame_sc(&ui_frame, 16),
 		progress_y + ui.ui_frame_sc(&ui_frame, 41),
-		ui.FONT_SIZE_NOTE,
+		ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 		ui.ui_frame_theme(&ui_frame).fg_secondary,
 	)
 	ui.progress_bar(
+		&ui_frame,
 		right_x + ui.ui_frame_sc(&ui_frame, 16),
 		progress_y + ui.ui_frame_sc(&ui_frame, 73),
 		right_w - ui.ui_frame_sc(&ui_frame, 32),
@@ -649,7 +672,14 @@ frame :: proc() {
 		app.status.progress,
 		status_color,
 	)
-	if app.has_process do ui.spinner(right_x + right_w - ui.ui_frame_sc(&ui_frame, 30), progress_y + ui.ui_frame_sc(&ui_frame, 24), ui.ui_frame_scf(&ui_frame, 9))
+	if app.has_process {
+		ui.spinner(
+			&ui_frame,
+			right_x + right_w - ui.ui_frame_sc(&ui_frame, 30),
+			progress_y + ui.ui_frame_sc(&ui_frame, 24),
+			ui.ui_frame_scf(&ui_frame, 9),
+		)
+	}
 
 	chart_y := progress_y + ui.ui_frame_sc(&ui_frame, 122)
 	loss_chart(
@@ -669,7 +699,7 @@ frame :: proc() {
 			strings.clone_to_cstring(app.error_message, context.temp_allocator),
 			right_x,
 			footer_y,
-			ui.FONT_SIZE_NOTE,
+			ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 			ui.ui_frame_theme(&ui_frame).fg_error,
 		)
 	} else {
@@ -680,7 +710,7 @@ frame :: proc() {
 			strings.clone_to_cstring(footer, context.temp_allocator),
 			right_x,
 			footer_y,
-			ui.FONT_SIZE_NOTE,
+			ui.ui_frame_metrics(&ui_frame).FONT_SIZE_NOTE,
 			ui.ui_frame_theme(&ui_frame).fg_secondary,
 		)
 	}
@@ -688,7 +718,7 @@ frame :: proc() {
 	ui.a11y_frame_end(&ui_frame)
 	ui.ui_frame_end(&ui_frame)
 	rl.EndDrawing()
-	ui.pacer_frame(&pacer, app.has_process)
+	ui.pacer_frame(&pacer, &ui_frame, app.has_process)
 }
 
 main :: proc() {
